@@ -5,13 +5,19 @@ import time
 
 # Função para representar cada pessoa na simulação
 def pessoa(id, atracao):
+    global fila # precisa de um mutex
+
+    #pega mutex
+    #identifica qual a sua atração
+    fila.append(atração)
+    #libera mutex
     print(f"[Pessoa {id} / AT-{atracao}] Aguardando na fila.")
     
     # Simula o tempo de espera até entrar na atração
-    time.sleep(randint(1, MAX_INTERVALO))
-    
-    # Adquire o semáforo para entrar na atração (controla vagas simultâneas)
-    semaforo_vagas.acquire()
+    #time.sleep(randint(1, MAX_INTERVALO))
+
+    #espera a sua vez de entrar na atração 
+    entra_na_atracao(atracao)
     
     # Entrada na atração
     print(f"[Pessoa {id} / AT-{atracao}] Entrou na NASA Experiences (quantidade = {quantidade_na_atracao[atracao - 1]+1})")
@@ -21,18 +27,58 @@ def pessoa(id, atracao):
     time.sleep(PERMANENCIA)
     
     # Sai da atração
+    sai_da_atracao(atracao)
     print(f"[Pessoa {id} / AT-{atracao}] Saiu da NASA Experiences (quantidade = {quantidade_na_atracao[atracao - 1]-1})")
     quantidade_na_atracao[atracao - 1] -= 1
     
     # Libera o semáforo após sair
+    # semaforo_vagas.release()
+
+def entra_na_atracao(atracao):
+    global atracao_atual #precisa de um mutex
+    global fila # precisa de um mutex
+    
+    # Adquire o semáforo para entrar na atração (controla vagas simultâneas)
+    semaforo_vagas.acquire()
+
+    #testa se sua atração é a em funcionamento
+    if atracao_atual == 0: # não tem atração em funcionamento
+        #pega mutex
+        atracao_atual = atracao
+        #libera mutex
+        #pega mutex
+        #sai da fila 
+        fila.pop(0)
+        #libera mutex
+        return
+    elif atracao_atual == atracao: # é a atração atual
+        #pega mutex
+        #sai da fila 
+        fila.pop(0)
+        #libera mutex
+        return
+    else: # não é a atração atual 
+        #criar algum tipo de barreira pra esperar a atração anterior terminar sem ninguém mais pegar o semáforo 
+        #pega mutex
+        atracao_atual = atracao
+        #libera mutex
+        return
+
+def sai_da_atracao(atracao):
+    # Libera o semáforo após sair
     semaforo_vagas.release()
+    return
 
 # Função que cria as pessoas
 def criar_pessoas():
     global identificador_atracoes
+    global atracao_atual = 0
+    global fila = []
     lista_pessoas = []  # Lista para armazenar as threads das pessoas
     for i in range(N_PESSOAS):
         atracao = identificador_atracoes[randint(0, N_ATRACOES - 1)]  # Escolhe a atração aleatoriamente
+        # Simula o tempo de espera até entrar na atração (tem que dar um tempo entre cada thread)
+        time.sleep(randint(1, MAX_INTERVALO))
         thread_pessoa = Thread(target=pessoa, args=(i + 1, atracao + 1))  # Cria uma thread para a pessoa
         thread_pessoa.start()
         lista_pessoas.append(thread_pessoa)
@@ -91,5 +137,3 @@ if __name__ == '__main__':
 ( ) "Experiencia B: X"
 ( ) "Experiencia C: X"
 ( ) "Taxa de ocupacao: X"
-
-'''
