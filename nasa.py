@@ -3,6 +3,7 @@ from random import randint, seed
 import time
 import argparse
 from time import time as get_time
+import heapq
 
 # Variáveis de controle de sincronização
 fila = []
@@ -35,8 +36,7 @@ def pessoa(id, atracao):
     print(f"[Pessoa {id+1} / AT-{atracao+1}] Aguardando na fila.")
 
     with mutex_fila:
-        fila.append((id, atracao, tempo_chegada))
-        fila.sort(key=lambda x: x[2])  # Ordena por tempo de chegada
+        heapq.heappush(fila, (id, atracao, tempo_chegada))  # Ordena por tempo de chegada
 
     while True:
         with mutex_fila:
@@ -98,10 +98,8 @@ def saiu_da_atracao(id, atracao):
         print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd})")
         
         # Remove a pessoa da fila
-        for i, (pid, patr, _) in enumerate(fila):
-            if pid == id and patr == atracao:
-                fila.pop(i)
-                break
+        fila = [item for item in fila if not (item[1] == atracao and item[0] == id)]
+        heapq.heapify(fila)
         
         # Verifica se precisa pausar a atração
         if not fila:  # Se não tem mais ninguém na fila
