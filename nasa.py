@@ -119,10 +119,12 @@ def criar_pessoas():
     lista_pessoas = []
     
     for i in range(N_PESSOAS):
+        seed(SEMENTE)
         atracao = randint(0, N_ATRACOES - 1)
         thread_pessoa = Thread(target=pessoa, args=(i, atracao))
         lista_pessoas.append(thread_pessoa)
         thread_pessoa.start()
+        seed(SEMENTE)
         time.sleep(randint(0, MAX_INTERVALO) * UNID_TEMPO/1000)
         
     for thread_pessoa in lista_pessoas:
