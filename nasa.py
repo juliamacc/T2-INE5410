@@ -9,12 +9,19 @@ import heapq
 fila = []
 atual_atracao = None
 
+# Mutexes para proteção das variáveis globais
+mutex_fila = Lock()
+mutex_atual_atracao = Lock()
+mutex_tempos_espera = Lock()
+mutex_pessoas_atracao = Lock()
+mutex_tempo = Lock()
+
 # Variáveis para estatísticas
-tempos_espera = {}  # Dicionário para armazenar tempos de espera por atração
-pessoas_por_atracao = {}  # Dicionário para contar pessoas em cada atração
+tempos_espera = {}  # Armazena tempos de espera por atração
+pessoas_por_atracao = {}  # Conta pessoas em cada atração
 inicio_simulacao = 0
-tempo_ocupado = 0
-ultima_pausa = 0
+tempo_ocupado = 0  # Tempo total em que as atrações ficaram funcionando
+tempo_inicio_atracao = None  # Marca quando uma atração começa a funcionar
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -30,85 +37,100 @@ def parse_arguments():
     return parser.parse_args()
 
 def pessoa(id, atracao):
-    global fila, atual_atracao, tempos_espera
-    
     tempo_chegada = get_time()
     print(f"[Pessoa {id+1} / AT-{atracao+1}] Aguardando na fila.")
 
     with mutex_fila:
-        heapq.heappush(fila, (id, atracao, tempo_chegada))  # Ordena por tempo de chegada
+        # Adiciona pessoa na fila usando heap (ordenado por tempo de chegada)
+        heapq.heappush(fila, (tempo_chegada, id, atracao))
 
     while True:
-        with mutex_fila:
-            minha_posicao = fila.index((id, atracao, tempo_chegada))
+        permitido_entrar = False
+        with mutex_fila, mutex_atual_atracao:
+            # Verifica se há alguém na frente querendo outra atração
+            conflito_atracao = any(t < tempo_chegada and a != atracao 
+                                 for t, _, a in fila)
             
-            # Verifica se há alguém antes de mim querendo outra atração
-            for i in range(minha_posicao):
-                if fila[i][1] != atracao:
-                    break
-            else:  # Se não encontrou ninguém querendo outra atração
-                i = minha_posicao
-
-            if (i == minha_posicao and  # Ninguém antes de mim quer outra atração
-                (atual_atracao is None or atual_atracao == atracao) and  # Atração disponível
-                (pessoas_por_atracao.get(atual_atracao, 0) == 0 or atual_atracao == atracao) and  # Atração vazia ou é a minha
-                semaforos[atracao]._value > 0):  # Tem vaga
-                break
+            # Condições para entrar na atração:
+            # 1. Ninguém na frente quer outra atração
+            # 2. Atração está livre ou é a mesma que queremos
+            # 3. Há vagas disponíveis
+            if (not conflito_atracao and  
+                (atual_atracao is None or atual_atracao == atracao) and  
+                semaforos[atracao]._value > 0):
+                permitido_entrar = True
+        
+        if permitido_entrar:
+            break
                 
         time.sleep(UNID_TEMPO/1000)
 
     entrou_na_atracao(id, atracao, tempo_chegada)
 
 def entrou_na_atracao(id, atracao, tempo_chegada):
-    global atual_atracao, tempo_ocupado, ultima_pausa, pessoas_por_atracao
+    global atual_atracao, tempo_ocupado, pessoas_por_atracao, tempo_inicio_atracao
     
-    with mutex_fila:
-        # Se está iniciando uma nova atração
-        if atual_atracao != atracao:
-            print(f"[NASA] Iniciando a experiencia AT-{atracao+1}.")
-            atual_atracao = atracao
-            if ultima_pausa:
-                tempo_ocupado += get_time() - ultima_pausa
-                ultima_pausa = 0
-        
-        # Incrementa contador de pessoas na atração
-        if atracao not in pessoas_por_atracao:
-            pessoas_por_atracao[atracao] = 0
-        pessoas_por_atracao[atracao] += 1
+    # Semáforo controla número máximo de pessoas simultâneas na atração
+    semaforos[atracao].acquire()
+    try:
+        with mutex_atual_atracao, mutex_tempo, mutex_pessoas_atracao:
+            # Se é uma nova atração iniciando
+            if atual_atracao != atracao:
+                print(f"[NASA] Iniciando a experiencia AT-{atracao+1}.")
+                atual_atracao = atracao
+                tempo_inicio_atracao = get_time()  # Marca início para calcular ocupação
+            
+            # Atualiza contadores e estatísticas
+            if atracao not in pessoas_por_atracao:
+                pessoas_por_atracao[atracao] = 0
+            pessoas_por_atracao[atracao] += 1
 
-    with semaforos[atracao]:
-        # Registra tempo de espera
-        tempo_espera = get_time() - tempo_chegada
-        if atracao not in tempos_espera:
-            tempos_espera[atracao] = []
-        tempos_espera[atracao].append(tempo_espera)
+            with mutex_tempos_espera:
+                # Registra tempo que pessoa esperou na fila
+                tempo_espera = get_time() - tempo_chegada
+                if atracao not in tempos_espera:
+                    tempos_espera[atracao] = []
+                tempos_espera[atracao].append(tempo_espera)
+            
+            print(f"[Pessoa {id+1} / AT-{atracao+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao[atracao]})")
         
-        print(f"[Pessoa {id+1} / AT-{atracao+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao[atracao]})")
+        # Simula tempo de permanência na atração
         time.sleep(PERMANENCIA * UNID_TEMPO/1000)
-
-    saiu_da_atracao(id, atracao)
+        
+    finally:
+        saiu_da_atracao(id, atracao)
+        semaforos[atracao].release()
 
 def saiu_da_atracao(id, atracao):
-    global atual_atracao, ultima_pausa, pessoas_por_atracao
+    global atual_atracao, ultima_pausa, pessoas_por_atracao, tempo_ocupado, tempo_inicio_atracao
 
-    with mutex_fila:
-        # Atualiza contadores
+    with mutex_fila, mutex_atual_atracao, mutex_tempo, mutex_pessoas_atracao:
         pessoas_por_atracao[atracao] -= 1
-        qtd = pessoas_por_atracao[atracao]
-        print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd})")
+        qtd_atual = pessoas_por_atracao[atracao]
+        print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd_atual})")
         
-        # Remove a pessoa da fila
-        fila = [item for item in fila if not (item[1] == atracao and item[0] == id)]
-        heapq.heapify(fila)
+        fila_atualizada = []
+        while fila:
+            t, i, a = heapq.heappop(fila)
+            if not (i == id and a == atracao):
+                fila_atualizada.append((t, i, a))
+        for item in fila_atualizada:
+            heapq.heappush(fila, item)
         
-        # Verifica se precisa pausar a atração
-        if not fila:  # Se não tem mais ninguém na fila
+        if not fila:
+            print(f"[NASA] Pausando a experiencia AT-{atracao+1}")
+            if tempo_inicio_atracao is not None:
+                tempo_ocupado += get_time() - tempo_inicio_atracao
+                tempo_inicio_atracao = None
             atual_atracao = None
-            ultima_pausa = get_time()
-        elif qtd == 0:  # Se a atração atual esvaziou
-            proxima_atracao = fila[0][1]
-            if proxima_atracao != atracao:  # E a próxima pessoa quer uma atração diferente
-                atual_atracao = None
+        elif qtd_atual == 0:
+            if fila:
+                proxima_atracao = fila[0][2]
+                if proxima_atracao != atracao:
+                    if tempo_inicio_atracao is not None:
+                        tempo_ocupado += get_time() - tempo_inicio_atracao
+                        tempo_inicio_atracao = None
+                    atual_atracao = None
 
 def criar_pessoas():
     global inicio_simulacao
@@ -116,13 +138,13 @@ def criar_pessoas():
     inicio_simulacao = get_time()
     lista_pessoas = []
     
+    # Cria N_PESSOAS threads, cada uma representando uma pessoa
     for i in range(N_PESSOAS):
-        seed(SEMENTE)
-        atracao = randint(0, N_ATRACOES - 1)
+        atracao = randint(0, N_ATRACOES - 1)  # Escolhe atração aleatoriamente
         thread_pessoa = Thread(target=pessoa, args=(i, atracao))
         lista_pessoas.append(thread_pessoa)
         thread_pessoa.start()
-        seed(SEMENTE)
+        # Espera intervalo aleatório antes de criar próxima pessoa
         time.sleep(randint(0, MAX_INTERVALO) * UNID_TEMPO/1000)
         
     for thread_pessoa in lista_pessoas:
@@ -132,20 +154,22 @@ def imprimir_estatisticas():
     tempo_total = get_time() - inicio_simulacao
     
     print("\nTempo medio de espera:")
-    for atracao in range(N_ATRACOES):
-        if atracao in tempos_espera and tempos_espera[atracao]:
-            media = sum(tempos_espera[atracao]) / len(tempos_espera[atracao]) * 1000
-            print(f"Experiencia {atracao+1}: {media:.2f}")
-        else:
-            print(f"Experiencia {atracao+1}: 0.00")
+    with mutex_tempos_espera:
+        for atracao in range(N_ATRACOES):
+            if atracao in tempos_espera and tempos_espera[atracao]:
+                media = sum(tempos_espera[atracao]) / len(tempos_espera[atracao]) * 1000
+                print(f"Experiencia {atracao+1}: {media:.2f}")
+            else:
+                print(f"Experiencia {atracao+1}: 0.00")
     
-    taxa_ocupacao = tempo_ocupado / tempo_total
-    print(f"\nTaxa de ocupacao: {taxa_ocupacao}")
+    with mutex_tempo:
+        taxa_ocupacao = tempo_ocupado / tempo_total
+        print(f"\nTaxa de ocupacao: {taxa_ocupacao:.2f}")
 
 if __name__ == '__main__':
     args = parse_arguments()
     
-    # Inicialização das variáveis globais
+    # Inicialização das variáveis globais com argumentos da linha de comando
     N_ATRACOES = args.N_ATRACOES
     N_PESSOAS = args.N_PESSOAS
     N_VAGAS = args.N_VAGAS
@@ -154,7 +178,10 @@ if __name__ == '__main__':
     SEMENTE = args.SEMENTE
     UNID_TEMPO = args.UNID_TEMPO
 
+    # Inicializa gerador de números aleatórios com a seed fornecida
     seed(SEMENTE)
+    
+    # Cria semáforos para controlar vagas em cada atração
     semaforos = [Semaphore(N_VAGAS) for _ in range(N_ATRACOES)]
     mutex_fila = Lock()
 
