@@ -92,7 +92,7 @@ def entrou_na_atracao(id, atracao, tempo_chegada):
                     tempos_espera[atracao] = []
                 tempos_espera[atracao].append(tempo_espera)
             
-            print(f"[Pessoa {id+1} / AT-{atracao+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao[atracao]})")
+            print(f"[Pessoa {id+1} / AT-{atracao+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao[atracao]}).")
         
         # Simula tempo de permanência na atração
         time.sleep(PERMANENCIA * UNID_TEMPO/1000)
@@ -107,7 +107,7 @@ def saiu_da_atracao(id, atracao):
     with mutex_fila, mutex_atual_atracao, mutex_tempo, mutex_pessoas_atracao:
         pessoas_por_atracao[atracao] -= 1
         qtd_atual = pessoas_por_atracao[atracao]
-        print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd_atual})")
+        print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd_atual}).")
         
         fila_atualizada = []
         while fila:
@@ -118,7 +118,7 @@ def saiu_da_atracao(id, atracao):
             heapq.heappush(fila, item)
         
         if not fila:
-            print(f"[NASA] Pausando a experiencia AT-{atracao+1}")
+            print(f"[NASA] Pausando a experiencia AT-{atracao+1}.")
             if tempo_inicio_atracao is not None:
                 tempo_ocupado += get_time() - tempo_inicio_atracao
                 tempo_inicio_atracao = None
@@ -180,6 +180,8 @@ if __name__ == '__main__':
 
     # Inicializa gerador de números aleatórios com a seed fornecida
     seed(SEMENTE)
+
+    print("[NASA] Simulacao iniciada.")
     
     # Cria semáforos para controlar vagas em cada atração
     semaforos = [Semaphore(N_VAGAS) for _ in range(N_ATRACOES)]
