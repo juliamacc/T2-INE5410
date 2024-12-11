@@ -30,12 +30,17 @@ def pessoa(id, atracao):
 def entrou_na_atracao():
     global fila, atual_atracao, tempo_ocupado, pessoas_por_atracao, tempo_inicio_atracao
     
+    mutex_atual_atracao.acquire()
     mutex_fila.acquire()
     id0 = fila[0][0]
     atracao0 = fila[0][1]
     tempo_chegada0 = fila[0][2]
-    mutex_atual_atracao.acquire()
     if atual_atracao == 0: 
+    
+        # Remove o primeiro da fila
+    	fila.pop(0)
+    	mutex_fila.release()
+    	
     	# Nenhuma atração começou ainda
     	atual_atracao = atracao0
     	mutex_atual_atracao.release()
@@ -48,46 +53,49 @@ def entrou_na_atracao():
     	tempo_inicio_atracao = get_time()  
         
     	mutex_pessoas_atracao.acquire()
-    	pessoas_por_atracao[atracao0] += 1
+    	pessoas_por_atracao += 1
     	mutex_pessoas_atracao.release()
         
     	with mutex_tempos_espera:
             # Registra tempo que pessoa esperou na fila
             tempo_espera = get_time() - tempo_chegada0
-            tempos_espera[atracao0] += tempo_espera
+            tempos_espera[atracao0][0] += tempo_espera 
+            tempos_espera[atracao0][1] += 1
 
         # O primeiro da fila vai entrar
     	print(f"[Pessoa {id0+1} / AT-{atracao0+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao})")
-        
+
+    elif atracao0 == atual_atracao: # É a atração atual
         # Remove o primeiro da fila
     	fila.pop(0)
     	mutex_fila.release()
-    elif atracao0 == atual_atracao: # É a atração atual
-        mutex_atual_atracao.release()
-        semaforo.acquire()
+    
+    	mutex_atual_atracao.release()
+    	semaforo.acquire()
     	
-        mutex_pessoas_atracao.acquire()
-        pessoas_por_atracao[atracao0] += 1
-        mutex_pessoas_atracao.release()
+    	mutex_pessoas_atracao.acquire()
+    	pessoas_por_atracao += 1
+    	mutex_pessoas_atracao.release()
     	
-        with mutex_tempos_espera:
+    	with mutex_tempos_espera:
             # Registra tempo que pessoa esperou na fila
             tempo_espera = get_time() - tempo_chegada0
-            tempos_espera[atracao0] += tempo_espera
+            tempos_espera[atracao0][0] += tempo_espera 
+            tempos_espera[atracao0][1] += 1
     	
     	# O primeiro da fila vai entrar
-        print(f"[Pessoa {id0+1} / AT-{atracao0+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao})")
-        
-        # Remove o primeiro da fila
-        fila.pop(0)
-        mutex_fila.release()
+    	print(f"[Pessoa {id0+1} / AT-{atracao0+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao})")
         
     else:
+        # Remove o primeiro da fila
+    	fila.pop(0)
+    	mutex_fila.release()
     	atual_atracao = atracao0
-    	mutex_atual_atracao.release()
     	
     	# Espera a atração anterior acabar
     	mudou_atracao.wait()
+    	
+    	mutex_atual_atracao.release()
     	
     	semaforo.acquire()
     	
@@ -98,17 +106,13 @@ def entrou_na_atracao():
     	with mutex_tempos_espera:
             # Registra tempo que pessoa esperou na fila
             tempo_espera = get_time() - tempo_chegada0
-            tempos_espera[atracao0] += tempo_espera
+            tempos_espera[atracao0][0] += tempo_espera 
+            tempos_espera[atracao0][1] += 1
     	
     	# O primeiro da fila vai entrar
     	print(f"[Pessoa {id0+1} / AT-{atracao0+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao})")
-        
-        # Remove o primeiro da fila
-    	fila.pop(0)
-    	mutex_fila.release()
     
     saiu_da_atracao(id0, atracao0)
-    semaforo.release()
 
 def saiu_da_atracao(id, atracao):
     global atual_atracao, ultima_pausa, pessoas_por_atracao, tempo_ocupado, tempo_inicio_atracao
@@ -117,21 +121,26 @@ def saiu_da_atracao(id, atracao):
     time.sleep(PERMANENCIA * UNID_TEMPO/1000)
 
     mutex_pessoas_atracao.acquire()
-    pessoas_por_atracao[atracao] -= 1
-    qtd_atual = pessoas_por_atracao[atracao]
+    pessoas_por_atracao -= 1
+    qtd_atual = pessoas_por_atracao
     mutex_pessoas_atracao.release()
+
     print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd_atual})")
         
-    with mutex_atual_atracao:
-        if atual_atracao != atracao:
-            if qtd_atual == 0:
-               print(f"[NASA] Pausando a experiencia AT-{atracao+1}")
-               mudou_atracao.notify_all()
-               mutex_tempo.acquire()
-               if tempo_inicio_atracao is not None:
-                   tempo_ocupado += get_time() - tempo_inicio_atracao
-                   tempo_inicio_atracao = None
-               mutex_tempo.release()
+
+    if qtd_atual == 0:
+        print(f"[NASA] Pausando a experiencia AT-{atracao+1}")
+        mutex_atual_atracao.acquire()
+        if fila == []:
+           atual_atracao = 0
+        elif atual_atracao != atracao:
+           mudou_atracao.notify_all()
+        mutex_atual_atracao.release()
+        mutex_tempo.acquire()
+        if tempo_inicio_atracao is not None:
+           tempo_ocupado += get_time() - tempo_inicio_atracao
+           tempo_inicio_atracao = None
+        mutex_tempo.release()
 
             
 
@@ -159,8 +168,8 @@ def imprimir_estatisticas():
     print("\nTempo medio de espera:")
     with mutex_tempos_espera:
         for atracao in range(N_ATRACOES):
-            if atracao in tempos_espera and tempos_espera[atracao]:
-                media = sum(tempos_espera[atracao]) / len(tempos_espera[atracao]) * 1000
+            if tempos_espera[atracao][1] > 0:
+                media = tempos_espera[atracao][0]/ tempos_espera[atracao][1] * 1000
                 print(f"Experiencia {atracao+1}: {media:.2f}")
             else:
                 print(f"Experiencia {atracao+1}: 0.00")
@@ -188,8 +197,8 @@ if __name__ == '__main__':
     fila = []
     atual_atracao = 0
     # Variáveis para estatísticas
-    tempos_espera = [0.0]*N_ATRACOES  # Armazena tempos de espera por atração
-    pessoas_por_atracao = [0]*N_ATRACOES  # Conta pessoas em cada atração
+    tempos_espera = [[0.0, 0]]*N_ATRACOES  # Armazena tempos de espera e pessoas por atração
+    pessoas_por_atracao = 0  # Conta pessoas em cada atração
     inicio_simulacao = 0
     tempo_ocupado = 0  # Tempo total em que as atrações ficaram funcionando
     tempo_inicio_atracao = None  # Marca quando uma atração começa a funcionar
@@ -203,7 +212,7 @@ if __name__ == '__main__':
     mutex_tempos_espera = Lock()
     mutex_pessoas_atracao = Lock()
     mutex_tempo = Lock()
-    mudou_atracao = Condition(mutex_fila)
+    mudou_atracao = Condition(mutex_atual_atracao)
 
     thread_criar_pessoa = Thread(target=criar_pessoas)
     thread_criar_pessoa.start()
