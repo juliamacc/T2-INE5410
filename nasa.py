@@ -151,12 +151,17 @@ def criar_pessoas():
     
     # Cria N_PESSOAS threads, cada uma representando uma pessoa
     for i in range(N_PESSOAS):
-        atracao = randint(0, N_ATRACOES - 1)  # Escolhe atração aleatoriamente
+        # Escolhe atração aleatoriamente (1 a N_ATRACOES)
+        atracao = randint(0, N_ATRACOES - 1)
+        
         thread_pessoa = Thread(target=pessoa, args=(i, atracao))
         lista_pessoas.append(thread_pessoa)
         thread_pessoa.start()
-        # Espera intervalo aleatório antes de criar próxima pessoa
-        time.sleep(randint(0, MAX_INTERVALO) * UNID_TEMPO/1000)
+        
+        # Se não for a última pessoa, espera um tempo aleatório antes da próxima
+        if i < N_PESSOAS - 1:
+            intervalo = randint(0, MAX_INTERVALO)
+            time.sleep(intervalo)
         
     for thread_pessoa in lista_pessoas:
         thread_pessoa.join()
