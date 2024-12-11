@@ -23,8 +23,7 @@ inicio_simulacao = 0
 tempo_ocupado = 0  # Tempo total em que as atrações ficaram funcionando
 tempo_inicio_atracao = None  # Marca quando uma atração começa a funcionar
 
-# Adicionar nova variável global
-condition_atracao = Condition()
+# Condicional
 condition_entrada = Condition()
 
 def parse_arguments():
