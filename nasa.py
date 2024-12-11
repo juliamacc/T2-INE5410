@@ -89,14 +89,13 @@ def entrou_na_atracao(id, atracao, tempo_chegada):
             pessoas_por_atracao[atracao] += 1
 
             with mutex_tempos_espera:
-                tempo_espera = get_time() - tempo_chegada
+                tempo_espera = (get_time() - tempo_chegada) * 1000
                 if atracao not in tempos_espera:
                     tempos_espera[atracao] = []
                 tempos_espera[atracao].append(tempo_espera)
             
             print(f"[Pessoa {id+1} / AT-{atracao+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao[atracao]}).")
         
-        # Permanece na atração por PERMANENCIA unidades de tempo
         time.sleep(PERMANENCIA * UNID_TEMPO/1000)
         
     finally:
