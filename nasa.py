@@ -157,7 +157,7 @@ def imprimir_estatisticas():
     with mutex_tempos_espera:
         for atracao in range(N_ATRACOES):
             if atracao in tempos_espera and tempos_espera[atracao]:
-                media = sum(tempos_espera[atracao]) / len(tempos_espera[atracao]) * 1000
+                media = sum(tempos_espera[atracao]) / len(tempos_espera[atracao])
                 print(f"Experiencia {atracao+1}: {media:.2f}")
             else:
                 print(f"Experiencia {atracao+1}: 0.00")
