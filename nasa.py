@@ -1,4 +1,4 @@
-from threading import Thread, Semaphore, Lock
+from threading import Thread, Semaphore, Lock, Condition
 from random import randint, seed
 import time
 import argparse
@@ -23,6 +23,10 @@ inicio_simulacao = 0
 tempo_ocupado = 0  # Tempo total em que as atrações ficaram funcionando
 tempo_inicio_atracao = None  # Marca quando uma atração começa a funcionar
 
+# Adicionar nova variável global
+condition_atracao = Condition()
+condition_entrada = Condition()
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     
@@ -41,29 +45,29 @@ def pessoa(id, atracao):
     print(f"[Pessoa {id+1} / AT-{atracao+1}] Aguardando na fila.")
 
     with mutex_fila:
-        # Adiciona pessoa na fila usando heap (ordenado por tempo de chegada)
         heapq.heappush(fila, (tempo_chegada, id, atracao))
-
+    
     while True:
-        permitido_entrar = False
-        with mutex_fila, mutex_atual_atracao:
-            # Verifica se há alguém na frente querendo outra atração
-            conflito_atracao = any(t < tempo_chegada and a != atracao 
-                                 for t, _, a in fila)
-            
-            # Condições para entrar na atração:
-            # 1. Ninguém na frente quer outra atração
-            # 2. Atração está livre ou é a mesma que queremos
-            # 3. Há vagas disponíveis
-            if (not conflito_atracao and  
-                (atual_atracao is None or atual_atracao == atracao) and  
-                semaforos[atracao]._value > 0):
-                permitido_entrar = True
-        
-        if permitido_entrar:
-            break
+        with condition_entrada:
+            permitido_entrar = False
+            with mutex_fila, mutex_atual_atracao:
+                # Verifica se há alguém na frente querendo outra atração
+                conflito_atracao = any(t < tempo_chegada and a != atracao 
+                                     for t, _, a in fila)
                 
-        time.sleep(UNID_TEMPO/1000)
+                # Condições para entrar na atração:
+                # 1. Ninguém na frente quer outra atração
+                # 2. Atração está livre ou é a mesma que queremos
+                # 3. Há vagas disponíveis
+                if (not conflito_atracao and  
+                    (atual_atracao is None or atual_atracao == atracao) and  
+                    semaforos[atracao]._value > 0):
+                    permitido_entrar = True
+            
+            if permitido_entrar:
+                break
+                    
+            condition_entrada.wait()
 
     entrou_na_atracao(id, atracao, tempo_chegada)
 
@@ -102,13 +106,14 @@ def entrou_na_atracao(id, atracao, tempo_chegada):
         semaforos[atracao].release()
 
 def saiu_da_atracao(id, atracao):
-    global atual_atracao, ultima_pausa, pessoas_por_atracao, tempo_ocupado, tempo_inicio_atracao
+    global atual_atracao, pessoas_por_atracao, tempo_ocupado, tempo_inicio_atracao
 
     with mutex_fila, mutex_atual_atracao, mutex_tempo, mutex_pessoas_atracao:
         pessoas_por_atracao[atracao] -= 1
         qtd_atual = pessoas_por_atracao[atracao]
         print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd_atual}).")
         
+        # Remove da fila
         fila_atualizada = []
         while fila:
             t, i, a = heapq.heappop(fila)
@@ -131,6 +136,12 @@ def saiu_da_atracao(id, atracao):
                         tempo_ocupado += get_time() - tempo_inicio_atracao
                         tempo_inicio_atracao = None
                     atual_atracao = None
+
+    # Notifica fora dos locks para evitar deadlock
+    with condition_atracao:
+        condition_atracao.notify_all()
+    with condition_entrada:
+        condition_entrada.notify_all()
 
 def criar_pessoas():
     global inicio_simulacao
