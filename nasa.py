@@ -74,23 +74,22 @@ def pessoa(id, atracao):
 def entrou_na_atracao(id, atracao, tempo_chegada):
     global atual_atracao, tempo_ocupado, pessoas_por_atracao, tempo_inicio_atracao
     
-    # Semáforo controla número máximo de pessoas simultâneas na atração
     semaforos[atracao].acquire()
     try:
         with mutex_atual_atracao, mutex_tempo, mutex_pessoas_atracao:
-            # Se é uma nova atração iniciando
             if atual_atracao != atracao:
+                if atual_atracao is not None and tempo_inicio_atracao is not None:
+                    tempo_ocupado += get_time() - tempo_inicio_atracao
+                
                 print(f"[NASA] Iniciando a experiencia AT-{atracao+1}.")
                 atual_atracao = atracao
-                tempo_inicio_atracao = get_time()  # Marca início para calcular ocupação
+                tempo_inicio_atracao = get_time()
             
-            # Atualiza contadores e estatísticas
             if atracao not in pessoas_por_atracao:
                 pessoas_por_atracao[atracao] = 0
             pessoas_por_atracao[atracao] += 1
 
             with mutex_tempos_espera:
-                # Registra tempo que pessoa esperou na fila
                 tempo_espera = get_time() - tempo_chegada
                 if atracao not in tempos_espera:
                     tempos_espera[atracao] = []
@@ -98,7 +97,7 @@ def entrou_na_atracao(id, atracao, tempo_chegada):
             
             print(f"[Pessoa {id+1} / AT-{atracao+1}] Entrou na NASA Experiences (quantidade = {pessoas_por_atracao[atracao]}).")
         
-        # Simula tempo de permanência na atração
+        # Permanece na atração por PERMANENCIA unidades de tempo
         time.sleep(PERMANENCIA * UNID_TEMPO/1000)
         
     finally:
@@ -113,7 +112,7 @@ def saiu_da_atracao(id, atracao):
         qtd_atual = pessoas_por_atracao[atracao]
         print(f"[Pessoa {id+1} / AT-{atracao+1}] Saiu da NASA Experiences (quantidade = {qtd_atual}).")
         
-        # Remove da fila
+        # Atualiza fila
         fila_atualizada = []
         while fila:
             t, i, a = heapq.heappop(fila)
@@ -122,24 +121,21 @@ def saiu_da_atracao(id, atracao):
         for item in fila_atualizada:
             heapq.heappush(fila, item)
         
+        # Só pausa se não há ninguém na fila
         if not fila:
             print(f"[NASA] Pausando a experiencia AT-{atracao+1}.")
             if tempo_inicio_atracao is not None:
                 tempo_ocupado += get_time() - tempo_inicio_atracao
                 tempo_inicio_atracao = None
             atual_atracao = None
-        elif qtd_atual == 0:
-            if fila:
-                proxima_atracao = fila[0][2]
-                if proxima_atracao != atracao:
-                    if tempo_inicio_atracao is not None:
-                        tempo_ocupado += get_time() - tempo_inicio_atracao
-                        tempo_inicio_atracao = None
-                    atual_atracao = None
+        # Se a atração esvaziou e a próxima pessoa quer outra atração
+        elif qtd_atual == 0 and fila[0][2] != atracao:
+            if tempo_inicio_atracao is not None:
+                tempo_ocupado += get_time() - tempo_inicio_atracao
+                tempo_inicio_atracao = None
+            atual_atracao = None  # Libera para próxima atração começar
 
-    # Notifica fora dos locks para evitar deadlock
-    with condition_atracao:
-        condition_atracao.notify_all()
+    # Notifica FORA dos locks para evitar deadlock
     with condition_entrada:
         condition_entrada.notify_all()
 
@@ -149,19 +145,17 @@ def criar_pessoas():
     inicio_simulacao = get_time()
     lista_pessoas = []
     
-    # Cria N_PESSOAS threads, cada uma representando uma pessoa
     for i in range(N_PESSOAS):
-        # Escolhe atração aleatoriamente (1 a N_ATRACOES)
         atracao = randint(0, N_ATRACOES - 1)
-        
         thread_pessoa = Thread(target=pessoa, args=(i, atracao))
         lista_pessoas.append(thread_pessoa)
         thread_pessoa.start()
         
-        # Se não for a última pessoa, espera um tempo aleatório antes da próxima
+        # Se não for a última pessoa, espera um tempo aleatório
         if i < N_PESSOAS - 1:
+            # Intervalo aleatório de 0 a MAX_INTERVALO unidades de tempo
             intervalo = randint(0, MAX_INTERVALO)
-            time.sleep(intervalo)
+            time.sleep(intervalo * UNID_TEMPO/1000)  # Converte para milissegundos
         
     for thread_pessoa in lista_pessoas:
         thread_pessoa.join()
